@@ -1,0 +1,87 @@
+= Systemd One-Shot Services Lab
+
+== Overview
+
+This lab teaches participants how to create and manage systemd one-shot services through a practical database backup scenario at the fictitious Super-Business company.
+
+== Learning Objectives
+
+Participants will learn to:
+
+* Understand the difference between daemon and one-shot systemd services
+* Create systemd one-shot service units for task automation
+* Configure service dependencies and ordering with `Requires=` and `After=`
+* Use systemd timers to schedule one-shot services
+* Implement a production-ready database backup solution
+
+== Lab Scenario
+
+At Super-Business, Manager Scott has attempted to implement database backups with... creative results. Participants will work with Senior Sysadmin Nate to build a proper backup system using systemd one-shot services and timers.
+
+The lab progresses through four modules:
+
+1. **Introduction** - Understanding one-shot services and the lab environment
+2. **Creating a One-Shot Service** - Building a backup script and service unit
+3. **Dependencies and Ordering** - Ensuring the database is running before backups
+4. **Automation with Timers** - Scheduling backups with systemd timers
+
+== Technical Details
+
+* **Platform**: RHEL 10
+* **Services**: MariaDB database server
+* **Tools**: systemd, systemctl, journalctl, mysqldump
+
+== Lab Structure
+
+----
+zt-systemd-oneshot/
+├── config/                     # VM and network configuration
+├── content/                    # Lab documentation
+│   └── modules/ROOT/pages/     # Module content files
+├── setup-automation/           # Initial provisioning
+│   └── setup-rhel.sh          # Sets up MariaDB with test data
+├── runtime-automation/         # Per-module automation
+│   ├── module-01/             # Introduction (validation only)
+│   ├── module-02/             # One-shot service creation
+│   ├── module-03/             # Dependencies and ordering
+│   └── module-04/             # Timers and scheduling
+└── utilities/                  # Development helper scripts
+----
+
+== Real-World Applications
+
+The skills learned in this lab apply to:
+
+* Database backups and maintenance
+* Log rotation and cleanup
+* System initialization tasks
+* Certificate renewal automation
+* Data synchronization jobs
+* Report generation
+* Pre/post deployment scripts
+
+== Development
+
+To build and preview the lab locally:
+
+[source,bash]
+----
+./utilities/lab-build
+./utilities/lab-serve
+----
+
+Access the preview at http://localhost:8080
+
+To stop the local server:
+
+[source,bash]
+----
+./utilities/lab-stop
+----
+
+== Notes
+
+* All backup files are stored in `/var/backups/mariadb/`
+* The backup script automatically maintains only the 5 most recent backups
+* All service actions are logged to the systemd journal
+* Progress is tracked in `/tmp/progress.log` for debugging

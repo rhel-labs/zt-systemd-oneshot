@@ -1,0 +1,178 @@
+= Creating Your First One-Shot Service
+
+== Understanding One-Shot Services
+
+Before we dive in, let's understand what makes a one-shot service different from a traditional daemon service.
+
+[NOTE]
+====
+**Daemon services** (like `mariadb.service`):
+
+* Start and continue running in the background
+* Use `Type=simple`, `Type=forking`, or `Type=notify`
+* Systemd tracks their process and can restart them if they crash
+
+**One-shot services**:
+
+* Execute a single task and then exit
+* Use `Type=oneshot`
+* Perfect for backup scripts, maintenance tasks, or initialization
+* Can be triggered manually or by timers
+====
+
+== The Backup Script
+
+First, let's create a simple backup script. We'll store our backups properly in `/var/backups/mariadb/`.
+
+Create the backup directory:
+
+[source,bash,role=execute]
+----
+sudo mkdir -p /var/backups/mariadb
+----
+
+Now create the backup script:
+
+[source,bash,role=execute]
+----
+sudo tee /usr/local/bin/backup-database.sh > /dev/null << 'EOF'
+#!/bin/bash
+
+# Database backup script
+BACKUP_DIR="/var/backups/mariadb"
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+BACKUP_FILE="${BACKUP_DIR}/backup_${TIMESTAMP}.sql"
+
+echo "Starting database backup at $(date)"
+
+# Perform the backup
+mysqldump --all-databases > "${BACKUP_FILE}"
+
+if [ $? -eq 0 ]; then
+    echo "Backup successful: ${BACKUP_FILE}"
+
+    # Keep only the 5 most recent backups
+    cd "${BACKUP_DIR}"
+    ls -t backup_*.sql | tail -n +6 | xargs -r rm
+
+    echo "Cleanup complete. Current backups:"
+    ls -lh backup_*.sql 2>/dev/null || echo "No backups found"
+else
+    echo "Backup failed!"
+    exit 1
+fi
+
+echo "Backup completed at $(date)"
+EOF
+----
+
+Make the script executable:
+
+[source,bash,role=execute]
+----
+sudo chmod +x /usr/local/bin/backup-database.sh
+----
+
+== Testing the Script
+
+Let's test the script manually first:
+
+[source,bash,role=execute]
+----
+sudo /usr/local/bin/backup-database.sh
+----
+
+You should see output confirming the backup was created. Check that it exists:
+
+[source,bash,role=execute]
+----
+ls -lh /var/backups/mariadb/
+----
+
+== Creating the Systemd Service Unit
+
+Now let's create a systemd service to run this backup. Create the service file:
+
+[source,bash,role=execute]
+----
+sudo tee /etc/systemd/system/db-backup.service > /dev/null << 'EOF'
+[Unit]
+Description=Database Backup Service
+Documentation=man:mysqldump(1)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/backup-database.sh
+User=root
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+EOF
+----
+
+Let's break down the important parts:
+
+* `Type=oneshot` - This tells systemd the service runs once and exits
+* `ExecStart` - The command to execute
+* `StandardOutput=journal` - Sends output to the systemd journal for logging
+* No `Restart=` directive - One-shot services don't auto-restart
+
+== Activating the Service
+
+Reload systemd to recognize the new service:
+
+[source,bash,role=execute]
+----
+sudo systemctl daemon-reload
+----
+
+Now you can run the backup using systemd:
+
+[source,bash,role=execute]
+----
+sudo systemctl start db-backup.service
+----
+
+Check the status:
+
+[source,bash,role=execute]
+----
+sudo systemctl status db-backup.service
+----
+
+[IMPORTANT]
+====
+Notice that the service shows as **inactive (dead)** even though it succeeded. This is normal for one-shot services - they exit after completing their task.
+====
+
+Check the journal to see the backup log:
+
+[source,bash,role=execute]
+----
+sudo journalctl -u db-backup.service -n 20
+----
+
+Verify the new backup file was created:
+
+[source,bash,role=execute]
+----
+ls -lh /var/backups/mariadb/
+----
+
+[TIP]
+====
+You can run the service multiple times with `systemctl start db-backup.service`. Each time it creates a new timestamped backup and keeps only the 5 most recent ones.
+====
+
+[NOTE]
+====
+*From: Nate*
+
+Nice work! You've created your first one-shot service. Notice how much cleaner this is than Scott's approach of having a backup service running continuously.
+
+In the next module, we'll add dependencies to ensure the database is actually running before we try to back it up.
+
+-Nate
+====

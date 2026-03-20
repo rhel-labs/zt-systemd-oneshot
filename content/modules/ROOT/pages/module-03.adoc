@@ -1,0 +1,188 @@
+= Service Dependencies and Ordering
+
+== The Dependency Problem
+
+[quote, Manager Scott]
+____
+The backup service you made is great, but sometimes I reboot the server and the backup runs before the database starts and it fails. Can't you just make the backup script wait 5 minutes after boot? That should be enough time.
+____
+
+[NOTE]
+====
+*From: Nate*
+
+Scott's "wait 5 minutes" solution is... classic Scott. We're going to solve this properly using systemd dependencies.
+
+Systemd has two main concepts for controlling when services run:
+
+* **Dependencies** (`Requires`, `Wants`, `After`, `Before`) - Control whether and when services start
+* **Ordering** (`After`, `Before`) - Control the sequence
+
+Let's make our backup service smart enough to ensure MariaDB is running.
+
+-Nate
+====
+
+== Understanding Systemd Dependencies
+
+There are several dependency directives:
+
+* `Requires=` - Hard dependency. If the required service fails, this service fails too.
+* `Wants=` - Soft dependency. The wanted service is started, but if it fails, this service continues.
+* `After=` - Ordering. This service starts after the specified service.
+* `Before=` - Ordering. This service starts before the specified service.
+
+[IMPORTANT]
+====
+**Dependencies and Ordering are separate!**
+
+* `Wants=mariadb.service` means "start mariadb with me" but doesn't control order
+* `After=mariadb.service` means "start after mariadb" but doesn't ensure mariadb starts
+* Usually you want **both** together
+====
+
+== Adding Dependencies to the Backup Service
+
+Let's update our backup service to depend on MariaDB being active:
+
+[source,bash,role=execute]
+----
+sudo tee /etc/systemd/system/db-backup.service > /dev/null << 'EOF'
+[Unit]
+Description=Database Backup Service
+Documentation=man:mysqldump(1)
+Requires=mariadb.service
+After=mariadb.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/backup-database.sh
+User=root
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+EOF
+----
+
+Reload systemd to apply the changes:
+
+[source,bash,role=execute]
+----
+sudo systemctl daemon-reload
+----
+
+== Testing the Dependencies
+
+Now let's test that the dependency works. First, stop MariaDB:
+
+[source,bash,role=execute]
+----
+sudo systemctl stop mariadb
+----
+
+Try to start the backup service:
+
+[source,bash,role=execute]
+----
+sudo systemctl start db-backup.service
+----
+
+Check what happened:
+
+[source,bash,role=execute]
+----
+sudo systemctl status mariadb
+----
+
+[NOTE]
+====
+Notice that MariaDB was automatically started! The `Requires=mariadb.service` directive made systemd start MariaDB before starting the backup service.
+====
+
+Check the backup service status:
+
+[source,bash,role=execute]
+----
+sudo systemctl status db-backup.service
+----
+
+View the logs to confirm it waited for MariaDB:
+
+[source,bash,role=execute]
+----
+sudo journalctl -u db-backup.service -n 20
+----
+
+== Testing Failure Scenarios
+
+Let's see what happens if MariaDB can't start. We'll simulate this by making MariaDB fail:
+
+[source,bash,role=execute]
+----
+sudo systemctl stop mariadb
+sudo chmod 000 /var/lib/mysql
+----
+
+Now try the backup:
+
+[source,bash,role=execute]
+----
+sudo systemctl start db-backup.service 2>&1 || echo "Service failed as expected"
+----
+
+Check the status:
+
+[source,bash,role=execute]
+----
+sudo systemctl status db-backup.service
+----
+
+[IMPORTANT]
+====
+The backup service failed because MariaDB couldn't start. The `Requires=` directive creates a hard dependency - if MariaDB fails, the backup fails too.
+====
+
+Fix the permissions and restart:
+
+[source,bash,role=execute]
+----
+sudo chmod 755 /var/lib/mysql
+sudo systemctl start mariadb
+----
+
+Verify MariaDB is running:
+
+[source,bash,role=execute]
+----
+sudo systemctl status mariadb
+----
+
+== When to Use `Wants` vs `Requires`
+
+Let's look at the difference:
+
+* **Use `Requires=`** when the service absolutely cannot function without the dependency
+  - A backup service requires the database
+  - A web app requires its database
+
+* **Use `Wants=`** when the service prefers the dependency but can work without it
+  - A monitoring service wants to monitor other services but can still run if some are down
+  - A logging service wants network but can queue logs locally if network is down
+
+[TIP]
+====
+For our backup service, `Requires=` is correct because there's no point running a backup if the database isn't running.
+====
+
+[NOTE]
+====
+*From: Nate*
+
+Excellent! Now your backup service will never run unless MariaDB is healthy and running. Much better than Scott's "wait 5 minutes and hope" strategy.
+
+Next up: we'll automate this backup to run on a schedule using systemd timers.
+
+-Nate
+====

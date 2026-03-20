@@ -1,0 +1,66 @@
+= Welcome to Systemd One-Shot Services
+
+== Overview
+
+Welcome to Super-Business! You've been brought in to help with a critical infrastructure task: implementing proper database backups using systemd one-shot services.
+
+== The Situation
+
+[quote, Manager Scott]
+____
+I need you to set up database backups! I tried doing it myself but the server keeps running out of space because the backup runs constantly. I set it to run every second to make sure we never lose data. Also, I put the backups in /tmp because that's temporary and we don't need them long-term, right?
+____
+
+[NOTE]
+====
+*From: Nate (Senior Sysadmin)*
+
+Welcome aboard! Don't worry about Scott's... creative approach to backups. We're going to do this right.
+
+You'll be learning about systemd **one-shot services** - services that run once and exit, rather than staying running in the background. They're perfect for tasks like:
+
+* Database backups
+* System maintenance tasks
+* Cleanup operations
+* Pre/post deployment scripts
+
+I've set up a MariaDB database server for you to work with. We'll build a proper backup system using systemd services and timers.
+
+-Nate
+====
+
+== What You'll Learn
+
+In this lab, you'll learn to:
+
+* Understand the difference between daemon and one-shot services
+* Create systemd one-shot service units
+* Configure service dependencies and ordering
+* Use systemd timers to schedule one-shot services
+* Implement a real-world database backup solution
+
+== Lab Environment
+
+You have access to:
+
+* A RHEL system with MariaDB installed
+* Terminal access to configure systemd services
+* A sample database to practice with
+
+== Getting Started
+
+Let's begin by checking what's running on the system.
+
+[source,bash,role=execute]
+----
+systemctl status mariadb
+----
+
+You should see that MariaDB is already running and enabled.
+
+[TIP]
+====
+Throughout this lab, we'll be working in `/etc/systemd/system/` to create our service files, and `/var/backups/` for storing our database backups properly (not in /tmp like Scott suggested).
+====
+
+Ready? Let's move on to creating your first one-shot service.

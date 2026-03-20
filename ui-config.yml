@@ -1,0 +1,23 @@
+---
+
+antora:
+  name: modules
+  dir: www
+  modules:
+    - name: module-01
+      label: "Introduction"
+      solveButton: false
+    - name: module-02
+      label: "Creating a One-Shot Service"
+      solveButton: true
+    - name: module-03
+      label: "Dependencies and Ordering"
+      solveButton: true
+    - name: module-04
+      label: "Automation with Timers"
+      solveButton: true
+
+tabs:
+  - name: ">_ terminal"
+    url: /wetty
+

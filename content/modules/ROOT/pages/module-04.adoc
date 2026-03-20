@@ -1,0 +1,304 @@
+= Automating with Systemd Timers
+
+== Scheduling One-Shot Services
+
+[quote, Manager Scott]
+____
+Great work! Now I need these backups to run automatically. I'll just add it to crontab to run every minute. That way we're always backed up!
+____
+
+[NOTE]
+====
+*From: Nate*
+
+NO. Please don't let Scott near the crontab.
+
+We're going to use **systemd timers** instead. Timers are the modern way to schedule tasks in systemd-based systems and have several advantages over cron:
+
+* **Better logging** - Events logged to journald
+* **Dependencies** - Can depend on other services
+* **Resource management** - Integrated with systemd's resource controls
+* **Flexibility** - Relative schedules, boot-time delays, randomization
+* **Monitoring** - Easy to see timer status with systemctl
+
+-Nate
+====
+
+== Understanding Systemd Timers
+
+A systemd timer is a unit file (`.timer`) that triggers a service (`.service`). The timer and service share the same base name:
+
+* `db-backup.timer` triggers `db-backup.service`
+
+Timers use `OnCalendar=` for scheduled times, similar to cron but more flexible.
+
+== Creating the Timer Unit
+
+Create the timer file:
+
+[source,bash,role=execute]
+----
+sudo tee /etc/systemd/system/db-backup.timer > /dev/null << 'EOF'
+[Unit]
+Description=Daily Database Backup Timer
+Documentation=man:systemd.timer(5)
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=1h
+
+[Install]
+WantedBy=timers.target
+EOF
+----
+
+Let's break down the timer options:
+
+* `OnCalendar=daily` - Runs once per day at midnight (00:00)
+* `Persistent=true` - If the system was off when the timer should have triggered, run it at next boot
+* `RandomizedDelaySec=1h` - Adds random delay up to 1 hour (prevents all systems backing up at exact same time)
+
+== Understanding OnCalendar Syntax
+
+The `OnCalendar=` directive is very flexible:
+
+[source,text]
+----
+OnCalendar=daily              # 00:00 every day
+OnCalendar=weekly             # Monday 00:00
+OnCalendar=monthly            # 1st of month, 00:00
+OnCalendar=*-*-* 04:00:00     # 4 AM every day
+OnCalendar=Mon 09:00          # Monday at 9 AM
+OnCalendar=Mon,Fri 09:00      # Monday and Friday at 9 AM
+OnCalendar=*-*-* 00/2:00      # Every 2 hours
+----
+
+[TIP]
+====
+You can test OnCalendar expressions using:
+`systemd-analyze calendar "Mon,Fri 09:00"`
+====
+
+Try it:
+
+[source,bash,role=execute]
+----
+systemd-analyze calendar "daily"
+----
+
+== Alternative Timer Types
+
+Besides `OnCalendar=`, timers can use:
+
+* `OnBootSec=` - Relative to system boot
+* `OnStartupSec=` - Relative to systemd startup
+* `OnActiveSec=` - Relative to timer activation
+* `OnUnitActiveSec=` - Relative to last service activation
+
+Example for a backup 5 minutes after boot:
+
+[source,text]
+----
+OnBootSec=5min
+----
+
+== Enabling and Testing the Timer
+
+Reload systemd to recognize the new timer:
+
+[source,bash,role=execute]
+----
+sudo systemctl daemon-reload
+----
+
+Enable and start the timer:
+
+[source,bash,role=execute]
+----
+sudo systemctl enable --now db-backup.timer
+----
+
+Check the timer status:
+
+[source,bash,role=execute]
+----
+sudo systemctl status db-backup.timer
+----
+
+List all active timers:
+
+[source,bash,role=execute]
+----
+sudo systemctl list-timers --all
+----
+
+[NOTE]
+====
+The `list-timers` output shows when the timer will trigger next and when it last triggered.
+====
+
+== Testing the Timer
+
+Rather than wait for midnight, let's create a test timer that runs soon. Create a test timer:
+
+[source,bash,role=execute]
+----
+sudo tee /etc/systemd/system/db-backup-test.timer > /dev/null << 'EOF'
+[Unit]
+Description=Test Database Backup Timer
+Documentation=man:systemd.timer(5)
+
+[Timer]
+OnBootSec=30sec
+OnUnitActiveSec=2min
+
+[Install]
+WantedBy=timers.target
+EOF
+----
+
+Create a matching service (symbolic link):
+
+[source,bash,role=execute]
+----
+sudo ln -sf /etc/systemd/system/db-backup.service /etc/systemd/system/db-backup-test.service
+----
+
+Reload and start the test timer:
+
+[source,bash,role=execute]
+----
+sudo systemctl daemon-reload
+sudo systemctl enable --now db-backup-test.timer
+----
+
+Watch the timer:
+
+[source,bash,role=execute]
+----
+sudo systemctl list-timers db-backup-test.timer
+----
+
+Wait for it to trigger, then check the backup was created:
+
+[source,bash,role=execute]
+----
+sleep 35
+sudo journalctl -u db-backup-test.service -n 20
+----
+
+Verify new backup files:
+
+[source,bash,role=execute]
+----
+ls -lht /var/backups/mariadb/ | head
+----
+
+[IMPORTANT]
+====
+Notice that each timer trigger creates a new backup with a timestamp. The script automatically keeps only the 5 most recent backups.
+====
+
+Stop and disable the test timer:
+
+[source,bash,role=execute]
+----
+sudo systemctl stop db-backup-test.timer
+sudo systemctl disable db-backup-test.timer
+----
+
+== Monitoring Timer Activity
+
+View timer journal entries:
+
+[source,bash,role=execute]
+----
+sudo journalctl -u db-backup.timer
+----
+
+View service executions triggered by the timer:
+
+[source,bash,role=execute]
+----
+sudo journalctl -u db-backup.service
+----
+
+[TIP]
+====
+To see when all timers will run:
+`systemctl list-timers`
+
+To see the calendar for when a specific timer runs next:
+`systemctl status db-backup.timer`
+====
+
+== Real-World Timer Examples
+
+Here are some practical timer configurations:
+
+**Hourly backups during business hours:**
+[source,text]
+----
+OnCalendar=Mon..Fri 08..17:00
+----
+
+**Weekly maintenance:**
+[source,text]
+----
+OnCalendar=Sun 02:00
+----
+
+**Every 6 hours:**
+[source,text]
+----
+OnCalendar=*-*-* 00/6:00:00
+----
+
+**First day of month:**
+[source,text]
+----
+OnCalendar=*-*-01 03:00
+----
+
+== Conclusion
+
+[NOTE]
+====
+*From: Nate*
+
+Perfect! You've built a complete, production-ready backup system:
+
+✓ One-shot service that runs and exits cleanly
+✓ Proper dependencies to ensure database is running
+✓ Scheduled execution with systemd timers
+✓ Automatic cleanup of old backups
+✓ Full logging through journald
+
+This is a much better solution than Scott's original idea. You've learned the fundamentals of systemd one-shot services that you can apply to:
+
+* Database backups (like we did)
+* System maintenance tasks
+* Log rotation
+* Certificate renewal
+* Data synchronization
+* Report generation
+* Cleanup jobs
+
+Well done!
+
+-Nate
+
+P.S. - Don't tell Scott, but I've already disabled the cron job he set up that was running backups every second. The server's disk space thanks you.
+====
+
+[TIP]
+====
+**Key Takeaways:**
+
+1. One-shot services use `Type=oneshot` and exit after completing
+2. Dependencies (`Requires=`, `After=`) ensure proper service ordering
+3. Timers provide modern, flexible scheduling with better logging than cron
+4. Always include cleanup logic in backup scripts
+5. Use `Persistent=true` for timers that should catch up if missed
+====
